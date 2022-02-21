@@ -1,5 +1,5 @@
 import tensorflow as tf
-from time import time
+from time import sleep, time
 import numpy as np
 import math
 from sklearn.metrics import mean_squared_error
@@ -14,6 +14,9 @@ def bias_variable(shape, name):
     return tf.get_variable(name, shape, initializer=b_init)
 
 class AIN:
+    # k: Hidden factor
+    # k_c: Context hidden factor
+    # k_e: Effect hidden factor
     def __init__(self, sess, dims, num_context, global_mean, epoch, k, k_c, k_e, keep_prob, learning_rate, batch_size, mlp1_layer, mlp2_layer, mlp1_hidden_size, mlp2_hidden_size, dataset):
         self.sess = sess
         self.dims = dims
@@ -48,8 +51,14 @@ class AIN:
     def build_graph(self):
         self.u_idx = tf.placeholder(tf.int32, [None], "user_id")
         self.v_idx = tf.placeholder(tf.int32, [None], "item_id")
-        self.c1_idx = tf.placeholder(tf.int32, [None], "context1_id")
-        self.c2_idx = tf.placeholder(tf.int32, [None], "context2_id")
+
+        self.c_idx = []
+        for x in range(self.num_context-1):
+            self.c_idx.append(tf.placeholder(tf.int32, [None], "context"+ str(x) +"_id"))
+
+        # self.c1_idx = tf.placeholder(tf.int32, [None], "context1_id")
+        # self.c2_idx = tf.placeholder(tf.int32, [None], "context2_id")
+
         self.r = tf.placeholder(tf.float32, [None], "real_rating")
         self.dropout_keep = tf.placeholder(tf.float32, name="dropout_keep")
 
@@ -62,131 +71,255 @@ class AIN:
         self.V = weight_variable([self.num_items, self.k], "V")
         self.U_bias = weight_variable([self.num_users], "U_bias")
         self.V_bias = weight_variable([self.num_items], "V_bias")
-        self.C = weight_variable([self.num_context, self.k_c], "C")
-        self.C_bias = weight_variable([self.num_context], "C_bias")
+        self.C = weight_variable([self.num_context_dims, self.k_c], "C")
+        self.C_bias = weight_variable([self.num_context_dims], "C_bias")
 
         with tf.name_scope("get_latent_vector"):
             self.U_embed = tf.nn.embedding_lookup(self.U, self.u_idx, name="U_embed")
             self.V_embed = tf.nn.embedding_lookup(self.V, self.v_idx, name="V_embed")
-            self.C1_embed = tf.nn.embedding_lookup(self.C, self.c1_idx, name="C1_embed")
-            self.C2_embed = tf.nn.embedding_lookup(self.C, self.c2_idx, name="C2_embed")
+
+            self.C_embed = []
+            for x in range(self.num_context-1):
+                self.C_embed.append(tf.nn.embedding_lookup(self.C, self.c_idx[x], name="C"+ str(x) +"_embed"))
+
+            #self.C1_embed = tf.nn.embedding_lookup(self.C, self.c1_idx, name="C1_embed")
+            #self.C2_embed = tf.nn.embedding_lookup(self.C, self.c2_idx, name="C2_embed")
 
             self.U_bias_embed = tf.nn.embedding_lookup(self.U_bias, self.u_idx)
             self.V_bias_embed = tf.nn.embedding_lookup(self.V_bias, self.v_idx)
 
-            self.C1_bias_embed = tf.nn.embedding_lookup(self.C_bias, self.c1_idx)
-            self.C2_bias_embed = tf.nn.embedding_lookup(self.C_bias, self.c2_idx)
+            self.C_bias_embed = []
+            for x in range(self.num_context-1):
+                self.C_bias_embed.append(tf.nn.embedding_lookup(self.C_bias, self.c_idx[x]))
+
+            #self.C1_bias_embed = tf.nn.embedding_lookup(self.C_bias, self.c1_idx)
+            #self.C2_bias_embed = tf.nn.embedding_lookup(self.C_bias, self.c2_idx)
 
             self.U_embed = tf.nn.dropout(self.U_embed, self.dropout_keep)
             self.V_embed = tf.nn.dropout(self.V_embed, self.dropout_keep)
-            self.C1_embed = tf.nn.dropout(self.C1_embed, self.dropout_keep)
-            self.C2_embed = tf.nn.dropout(self.C2_embed, self.dropout_keep)
+
+
+            for Cx_embed in self.C_embed:
+                Cx_embed = tf.nn.dropout(Cx_embed, self.dropout_keep)
+
+            #self.C1_embed = tf.nn.dropout(self.C1_embed, self.dropout_keep)
+            #self.C2_embed = tf.nn.dropout(self.C2_embed, self.dropout_keep)
 
         with tf.name_scope("concat_user_context"):
-            self.user_c1_concat = tf.concat((self.U_embed, self.C1_embed), axis=1)
-            self.user_c2_concat = tf.concat((self.U_embed, self.C2_embed), axis=1)
+            self.user_c_concat = []
+            for Cx_embed in self.C_embed:
+              self.user_c_concat.append(tf.concat((self.U_embed, Cx_embed), axis=1))
+
+            # self.user_c1_concat = tf.concat((self.U_embed, self.C1_embed), axis=1)
+            # self.user_c2_concat = tf.concat((self.U_embed, self.C2_embed), axis=1)
 
         with tf.name_scope("concat_item_context"):
-            self.item_c1_concat = tf.concat((self.V_embed, self.C1_embed), axis=1)
-            self.item_c2_concat = tf.concat((self.V_embed, self.C2_embed), axis=1)
+            self.item_c_concat = []
+            for Cx_embed in self.C_embed:
+              self.item_c_concat.append(tf.concat((self.V_embed, Cx_embed), axis=1))
+
+            #self.item_c1_concat = tf.concat((self.V_embed, self.C1_embed), axis=1)
+            #self.item_c2_concat = tf.concat((self.V_embed, self.C2_embed), axis=1)
 
         with tf.name_scope("get_total_context_bias"):
-            self.total_context_bias = self.C1_bias_embed + self.C2_bias_embed
+            for i, Cx_bias_embed in enumerate(self.C_bias_embed):
+                if i==0:
+                    self.total_context_bias = Cx_bias_embed
+                else:
+                    self.total_context_bias = self.total_context_bias + Cx_bias_embed
+            #self.total_context_bias = self.C1_bias_embed + self.C2_bias_embed
 
+
+        # Interaction-Centric Module
         with tf.name_scope("user_MLP1"):
-            self.h_user_c1_umlp1 = self.user_c1_concat
-            self.h_user_c2_umlp1 = self.user_c2_concat
+
+            self.h_user_c_umlp1 = []
+            for user_cx_concat in self.user_c_concat:
+                self.h_user_c_umlp1.append(user_cx_concat)
+
+            #self.h_user_c1_umlp1 = self.user_c1_concat
+            #self.h_user_c2_umlp1 = self.user_c2_concat
 
             if self.mlp1_layer > 0:
                 for i in range(self.mlp1_layer):
-                    self.h_user_c1_umlp1 = tf.add(tf.matmul(self.h_user_c1_umlp1, self.weights['W_userMLP1_layer%d' % i]), self.weights['bias_userMLP1_layer%d' % i])
-                    self.h_user_c1_umlp1 = tf.nn.relu(self.h_user_c1_umlp1)
-                    self.h_user_c1_umlp1 = tf.nn.dropout(self.h_user_c1_umlp1, self.dropout_keep)
+                    for h_user_cx_umlp1 in self.h_user_c_umlp1:
+                        h_user_cx_umlp1 = tf.add(tf.matmul(h_user_cx_umlp1, self.weights['W_userMLP1_layer%d' % i]), self.weights['bias_userMLP1_layer%d' % i])
+                        h_user_cx_umlp1 = tf.nn.relu(h_user_cx_umlp1)
+                        h_user_cx_umlp1 = tf.nn.dropout(h_user_cx_umlp1, self.dropout_keep)
 
-                    self.h_user_c2_umlp1 = tf.add(tf.matmul(self.h_user_c2_umlp1, self.weights['W_userMLP1_layer%d' % i]), self.weights['bias_userMLP1_layer%d' % i])
-                    self.h_user_c2_umlp1 = tf.nn.relu(self.h_user_c2_umlp1)
-                    self.h_user_c2_umlp1 = tf.nn.dropout(self.h_user_c2_umlp1, self.dropout_keep)
+                    # y = wx+b
+                    # self.h_user_c1_umlp1 = tf.add(tf.matmul(self.h_user_c1_umlp1, self.weights['W_userMLP1_layer%d' % i]), self.weights['bias_userMLP1_layer%d' % i])
+                    # self.h_user_c1_umlp1 = tf.nn.relu(self.h_user_c1_umlp1)
+                    # self.h_user_c1_umlp1 = tf.nn.dropout(self.h_user_c1_umlp1, self.dropout_keep)
 
-            self.c1_user_effect = tf.matmul(self.h_user_c1_umlp1, self.weights['W_userMLP1_output']) + self.weights['bias_userMLP1_output']
-            self.c2_user_effect = tf.matmul(self.h_user_c2_umlp1, self.weights['W_userMLP1_output']) + self.weights['bias_userMLP1_output']
+            # y = wx+b
+            # Output vector
 
-            self.c1_user_effect = tf.nn.dropout(self.c1_user_effect, self.dropout_keep)
-            self.c2_user_effect = tf.nn.dropout(self.c2_user_effect, self.dropout_keep)
+            self.c_user_effect = []
+            for h_user_cx_umlp1 in self.h_user_c_umlp1:
+                c_user_effect_temp = tf.matmul(h_user_cx_umlp1, self.weights['W_userMLP1_output']) + self.weights['bias_userMLP1_output']
+                c_user_effect_temp = tf.nn.dropout(c_user_effect_temp, self.dropout_keep)
+                self.c_user_effect.append(c_user_effect_temp)
+
+
+            #self.c1_user_effect = tf.matmul(self.h_user_c1_umlp1, self.weights['W_userMLP1_output']) + self.weights['bias_userMLP1_output']
+            #self.c2_user_effect = tf.matmul(self.h_user_c2_umlp1, self.weights['W_userMLP1_output']) + self.weights['bias_userMLP1_output']
+
+            #self.c1_user_effect = tf.nn.dropout(self.c1_user_effect, self.dropout_keep)
+            #self.c2_user_effect = tf.nn.dropout(self.c2_user_effect, self.dropout_keep)
 
         with tf.name_scope("item_MLP1"):
-            self.h_item_c1_umlp1 = self.item_c1_concat
-            self.h_item_c2_umlp1 = self.item_c2_concat
+
+            self.h_item_c_umlp1 = []
+            for item_cx_concat in self.item_c_concat:
+                self.h_item_c_umlp1.append(item_cx_concat)
+
+            #self.h_item_c1_umlp1 = self.item_c1_concat
+            #self.h_item_c2_umlp1 = self.item_c2_concat
 
             if self.mlp1_layer > 0:
                 for i in range(self.mlp1_layer):
-                    self.h_item_c1_umlp1 = tf.add(tf.matmul(self.h_item_c1_umlp1, self.weights['W_itemMLP1_layer%d' % i]), self.weights['bias_itemMLP1_layer%d' % i])
-                    self.h_item_c1_umlp1 = tf.nn.relu(self.h_item_c1_umlp1)
-                    self.h_item_c1_umlp1 = tf.nn.dropout(self.h_item_c1_umlp1, self.dropout_keep)
+                    for h_item_cx_umlp1 in self.h_item_c_umlp1:
+                        h_item_cx_umlp1 = tf.add(tf.matmul(h_item_cx_umlp1, self.weights['W_itemMLP1_layer%d' % i]), self.weights['bias_itemMLP1_layer%d' % i])
+                        h_item_cx_umlp1 = tf.nn.relu(h_item_cx_umlp1)
+                        h_item_cx_umlp1 = tf.nn.dropout(h_item_cx_umlp1, self.dropout_keep)
 
-                    self.h_item_c2_umlp1 = tf.add(tf.matmul(self.h_item_c2_umlp1, self.weights['W_itemMLP1_layer%d' % i]), self.weights['bias_itemMLP1_layer%d' % i])
-                    self.h_item_c2_umlp1 = tf.nn.relu(self.h_item_c2_umlp1)
-                    self.h_item_c2_umlp1 = tf.nn.dropout(self.h_item_c2_umlp1, self.dropout_keep)
+                    #self.h_item_c1_umlp1 = tf.add(tf.matmul(self.h_item_c1_umlp1, self.weights['W_itemMLP1_layer%d' % i]), self.weights['bias_itemMLP1_layer%d' % i])
+                    #self.h_item_c1_umlp1 = tf.nn.relu(self.h_item_c1_umlp1)
+                    #self.h_item_c1_umlp1 = tf.nn.dropout(self.h_item_c1_umlp1, self.dropout_keep)
 
-            self.c1_item_effect = tf.matmul(self.h_item_c1_umlp1, self.weights['W_itemMLP1_output']) + self.weights['bias_itemMLP1_output']
-            self.c2_item_effect = tf.matmul(self.h_item_c2_umlp1, self.weights['W_itemMLP1_output']) + self.weights['bias_itemMLP1_output']
+                    #self.h_item_c2_umlp1 = tf.add(tf.matmul(self.h_item_c2_umlp1, self.weights['W_itemMLP1_layer%d' % i]), self.weights['bias_itemMLP1_layer%d' % i])
+                    #self.h_item_c2_umlp1 = tf.nn.relu(self.h_item_c2_umlp1)
+                    #self.h_item_c2_umlp1 = tf.nn.dropout(self.h_item_c2_umlp1, self.dropout_keep)
 
-            self.c1_item_effect = tf.nn.dropout(self.c1_item_effect, self.dropout_keep)
-            self.c2_item_effect = tf.nn.dropout(self.c2_item_effect, self.dropout_keep)
 
+            self.c_item_effect=[]
+            for h_item_cx_umlp1 in self.h_item_c_umlp1:
+                c_item_effect_temp = tf.matmul(h_item_cx_umlp1, self.weights['W_itemMLP1_output']) + self.weights['bias_itemMLP1_output']
+                c_item_effect_temp = tf.nn.dropout(c_item_effect_temp, self.dropout_keep)
+                self.c_item_effect.append(c_item_effect_temp)
+
+            #self.c1_item_effect = tf.matmul(self.h_item_c1_umlp1, self.weights['W_itemMLP1_output']) + self.weights['bias_itemMLP1_output']
+            #self.c2_item_effect = tf.matmul(self.h_item_c2_umlp1, self.weights['W_itemMLP1_output']) + self.weights['bias_itemMLP1_output']
+
+            #self.c1_item_effect = tf.nn.dropout(self.c1_item_effect, self.dropout_keep)
+            #self.c2_item_effect = tf.nn.dropout(self.c2_item_effect, self.dropout_keep)
+
+        # Effect-Level Attention
+        # Mecanismo de atencion para nivel de usuarios (superior en figura 2)
         with tf.name_scope("user_attention"):
-            self.attention_c1_user = tf.nn.relu(
-                tf.matmul(self.c1_user_effect, self.weights['W1_user_attention'])
+            
+            self.attention_c_user = []
+            for cx_user_effect in self.c_user_effect:
+                self.attention_c_user.append(tf.nn.relu(
+                tf.matmul(cx_user_effect, self.weights['W1_user_attention'])
                 + tf.matmul(self.U_embed, self.weights['W2_user_attention'])
                 + self.weights['bias_user_attention']
-            )
-            self.attention_c2_user = tf.nn.relu(
-                tf.matmul(self.c2_user_effect, self.weights['W1_user_attention'])
-                + tf.matmul(self.U_embed, self.weights['W2_user_attention'])
-                + self.weights['bias_user_attention']
-            )
+            ))
 
-            self.attention_c1_user_exp = tf.exp(self.attention_c1_user)
-            self.attention_c2_user_exp = tf.exp(self.attention_c2_user)
+            # self.attention_c1_user = tf.nn.relu(
+            #     tf.matmul(self.c1_user_effect, self.weights['W1_user_attention'])
+            #     + tf.matmul(self.U_embed, self.weights['W2_user_attention'])
+            #     + self.weights['bias_user_attention']
+            # )
+            # self.attention_c2_user = tf.nn.relu(
+            #     tf.matmul(self.c2_user_effect, self.weights['W1_user_attention'])
+            #     + tf.matmul(self.U_embed, self.weights['W2_user_attention'])
+            #     + self.weights['bias_user_attention']
+            # )
+
+            self.attention_c_user_exp = []
+            for i, attention_cx_user in enumerate(self.attention_c_user):
+                attention_c_user_exp_temp = tf.exp(attention_cx_user)
+                self.attention_c_user_exp.append(attention_c_user_exp_temp)
+                if i==0:
+                    self.attention_user_exp_sum = attention_c_user_exp_temp
+                else:
+                    self.attention_user_exp_sum = self.attention_user_exp_sum + attention_c_user_exp_temp
 
 
-            self.attention_user_exp_sum = self.attention_c1_user_exp + self.attention_c2_user_exp
+            #self.attention_c1_user_exp = tf.exp(self.attention_c1_user)
+            #self.attention_c2_user_exp = tf.exp(self.attention_c2_user)
 
-            self.attention_c1_user_out = tf.div(self.attention_c1_user_exp, self.attention_user_exp_sum, name="attention_c1_user_out")
-            self.attention_c2_user_out = tf.div(self.attention_c2_user_exp, self.attention_user_exp_sum, name="attention_c2_user_out")
+
+            #self.attention_user_exp_sum = self.attention_c1_user_exp + self.attention_c2_user_exp
+
+            self.attention_c_user_out = []
+            for i, attention_cx_user_exp in enumerate(self.attention_c_user_exp):
+                self.attention_c_user_out.append(tf.div(attention_cx_user_exp, self.attention_user_exp_sum, name="attention_c"+str(i)+"_user_out"))
+
+            #self.attention_c1_user_out = tf.div(self.attention_c1_user_exp, self.attention_user_exp_sum, name="attention_c1_user_out")
+            #self.attention_c2_user_out = tf.div(self.attention_c2_user_exp, self.attention_user_exp_sum, name="attention_c2_user_out")
 
         with tf.name_scope("total_effect_on_user"):
-            self.context_effect_on_user = tf.add(tf.multiply(self.attention_c1_user_out, self.c1_user_effect), tf.multiply(self.attention_c2_user_out, self.c2_user_effect))
+            for x in range(self.num_context-1):
+                if x==0:
+                    self.context_effect_on_user = tf.multiply(self.attention_c_user_out[x], self.c_user_effect[x])
+                else:
+                    self.context_effect_on_user = tf.add(self.context_effect_on_user, tf.multiply(self.attention_c_user_out[x], self.c_user_effect[x]))   
+            #self.context_effect_on_user = tf.add(tf.multiply(self.attention_c1_user_out, self.c1_user_effect), tf.multiply(self.attention_c2_user_out, self.c2_user_effect))
 
         with tf.name_scope("concat_user_effect"):
             self.user_effect_concat = tf.concat((self.U_embed, self.context_effect_on_user), axis=1)
 
+        # Mecanismo de atencion para nivel de item (inferior en figura 2)
         with tf.name_scope("item_attention"):
-            self.attention_c1_item = tf.nn.relu(
-                tf.matmul(self.c1_item_effect, self.weights['W1_item_attention'])
-                + tf.matmul(self.V_embed, self.weights['W2_item_attention'])
-                + self.weights['bias_item_attention']
-            )
-            self.attention_c2_item = tf.nn.relu(
-                tf.matmul(self.c2_item_effect, self.weights['W1_item_attention'])
-                + tf.matmul(self.V_embed, self.weights['W2_item_attention'])
-                + self.weights['bias_item_attention']
-            )
+            
+            self.attention_c_item = []
+            for cx_item_effect in self.c_item_effect:
+                self.attention_c_item.append(tf.nn.relu(
+                    tf.matmul(cx_item_effect, self.weights['W1_item_attention'])
+                    + tf.matmul(self.V_embed, self.weights['W2_item_attention'])
+                    + self.weights['bias_item_attention']
+                ))
 
-            self.attention_c1_item_exp = tf.exp(self.attention_c1_item)
-            self.attention_c2_item_exp = tf.exp(self.attention_c2_item)
+            # self.attention_c1_item = tf.nn.relu(
+            #     tf.matmul(self.c1_item_effect, self.weights['W1_item_attention'])
+            #     + tf.matmul(self.V_embed, self.weights['W2_item_attention'])
+            #     + self.weights['bias_item_attention']
+            # )
+            # self.attention_c2_item = tf.nn.relu(
+            #     tf.matmul(self.c2_item_effect, self.weights['W1_item_attention'])
+            #     + tf.matmul(self.V_embed, self.weights['W2_item_attention'])
+            #     + self.weights['bias_item_attention']
+            # )
 
-            self.attention_item_exp_sum = tf.add(self.attention_c1_item_exp, self.attention_c2_item_exp)
+            self.attention_c_item_exp = []
+            for i,attention_cx_item in enumerate(self.attention_c_item):
+                attention_cx_item_exp_temp = tf.exp(attention_cx_item)
+                self.attention_c_item_exp.append(attention_cx_item_exp_temp)
+                if i==0:
+                    self.attention_item_exp_sum = attention_cx_item_exp_temp
+                else:
+                    self.attention_item_exp_sum = self.attention_item_exp_sum + attention_cx_item_exp_temp
 
-            self.attention_c1_item_out = tf.div(self.attention_c1_item_exp, self.attention_item_exp_sum, name="attention_c1_item_out")
-            self.attention_c2_item_out = tf.div(self.attention_c2_item_exp, self.attention_item_exp_sum, name="attention_c2_item_out")
+            #self.attention_c1_item_exp = tf.exp(self.attention_c1_item)
+            #self.attention_c2_item_exp = tf.exp(self.attention_c2_item)
+
+            #self.attention_item_exp_sum = tf.add(self.attention_c1_item_exp, self.attention_c2_item_exp)
+
+
+            self.attention_c_item_out = []
+            for i, attention_cx_item_exp in enumerate(self.attention_c_item_exp):
+                self.attention_c_item_out.append(tf.div(attention_cx_item_exp, self.attention_item_exp_sum, name="attention_c"+str(i)+"_item_out"))
+
+            #self.attention_c1_item_out = tf.div(self.attention_c1_item_exp, self.attention_item_exp_sum, name="attention_c1_item_out")
+            #self.attention_c2_item_out = tf.div(self.attention_c2_item_exp, self.attention_item_exp_sum, name="attention_c2_item_out")
 
         with tf.name_scope("total_effect_on_item"):
-            self.context_effect_on_item = tf.add(tf.multiply(self.attention_c1_item_out, self.c1_item_effect),
-                                                 tf.multiply(self.attention_c2_item_out, self.c2_item_effect))
+            for x in range(self.num_context-1):
+                if x==0:
+                    self.context_effect_on_item = tf.multiply(self.attention_c_item_out[x], self.c_item_effect[x])
+                else:
+                    self.context_effect_on_item = tf.add(self.context_effect_on_item, tf.multiply(self.attention_c_item_out[x], self.c_item_effect[x]))   
+
+            #self.context_effect_on_item = tf.add(tf.multiply(self.attention_c1_item_out, self.c1_item_effect),tf.multiply(self.attention_c2_item_out, self.c2_item_effect))
 
         with tf.name_scope("concat_item_effect"):
             self.item_effect_concat = tf.concat((self.V_embed, self.context_effect_on_item), axis=1)
 
+
+        #Penultima capa figura dos (uv,c)
         with tf.name_scope("user_MLP2"):
             self.h_umlp2 = self.user_effect_concat
 
@@ -198,9 +331,12 @@ class AIN:
 
             self.U_under_context_embed = tf.add(tf.matmul(self.h_umlp2, self.weights['W_userMLP2_output']), self.weights['bias_userMLP2_output'], name="U_under_context_embed")
 
+            # Ecuacion 9
             self.U_under_context_embed = tf.nn.dropout(self.U_under_context_embed, self.dropout_keep)
 
+        #Penultima capa figura dos (qv,c)
         with tf.name_scope("item_MLP2"):
+
             self.h_vmlp2 = self.item_effect_concat
 
             if self.mlp2_layer > 0:
@@ -213,6 +349,7 @@ class AIN:
 
             self.V_under_context_embed = tf.nn.dropout(self.V_under_context_embed, self.dropout_keep)
 
+        #Ultima capa en figura 2
         with tf.name_scope("predict"):
 
             self.r_ = tf.reduce_sum(tf.multiply(self.U_under_context_embed, self.V_under_context_embed), reduction_indices=1)
@@ -410,16 +547,16 @@ class AIN:
     def construct_feeddict(self, batch_data, batch_label, phase):
         u_idx = batch_data.T[0]
         v_idx = batch_data.T[1]
-        c1_idx = batch_data.T[2]
-        c2_idx = batch_data.T[3]
+        c_idx = []
+        for i in range(2, self.num_context+1):
+            c_idx.append(batch_data.T[i])
 
         r = batch_label
 
         if phase == "train":
-            return {self.u_idx: u_idx, self.v_idx: v_idx, self.r: r, self.c1_idx: c1_idx, self.c2_idx: c2_idx, self.dropout_keep: self.keep_prob}
+            return {self.u_idx: u_idx, self.v_idx: v_idx, self.r: r, tuple(self.c_idx): c_idx, self.dropout_keep: self.keep_prob}
         else:
-            return {self.u_idx: u_idx, self.v_idx: v_idx, self.r: r, self.c1_idx: c1_idx, self.c2_idx: c2_idx, self.dropout_keep: 1}
-
+            return {self.u_idx: u_idx, self.v_idx: v_idx, self.r: r, tuple(self.c_idx): c_idx, self.dropout_keep: 1}
 
     def train(self, Train_data, Validation_data, Test_data, result_path='save/'):
         self.writer = tf.summary.FileWriter("./logs")

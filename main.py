@@ -8,32 +8,19 @@ from AIN import AIN
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run.")
-    parser.add_argument('--path', nargs='?', default='./dataset/processed/',
-                        help='Input data path.')
-    parser.add_argument('--dataset', nargs='?', default='Food',
-                        help='Choose a dataset.')
-    parser.add_argument('--epoch', type=int, default=100,
-                        help='Number of epochs.')
-    parser.add_argument('--batch_size', type=int, default=256,
-                        help='Batch size.')
-    parser.add_argument('--hidden_factor', type=int, default=64,
-                        help='Number of hidden factors of user and item.')
-    parser.add_argument('--context_hidden_factor', type=int, default=64,
-                        help='Number of hidden factors of context.')
-    parser.add_argument('--effect_hidden_factor', type=int, default=64,
-                        help='Number of hidden factors of effect.')
-    parser.add_argument('--learning_rate', type=float, default=0.001,
-                        help='Learning rate.')
-    parser.add_argument('--mlp1_layers', type=int, default=2,
-                        help='Number of layer in Interaction-Centric Module.')
-    parser.add_argument('--mlp2_layers', type=int, default=1,
-                        help='Number of layer in User/Item-Centric Module.')
-    parser.add_argument('--mlp1_hidden_size', type=int, default=128,
-                        help="Dimension of the hidden size of Interaction-Centric Module.")
-    parser.add_argument('--mlp2_hidden_size', type=int, default=128,
-                        help="Dimension of the hidden size of User/Item-Centric Module.")
-    parser.add_argument('--keep_prob', type=float, default=0.7,
-                        help='Keep probability.')
+    parser.add_argument('--path', nargs='?', default='./dataset/processed/',help='Input data path.')
+    parser.add_argument('--dataset', nargs='?', default='Pickle',help='Choose a dataset.')
+    parser.add_argument('--epoch', type=int, default=100,help='Number of epochs.')
+    parser.add_argument('--batch_size', type=int, default=256,help='Batch size.')
+    parser.add_argument('--hidden_factor', type=int, default=64,help='Number of hidden factors of user and item.')
+    parser.add_argument('--context_hidden_factor', type=int, default=64,help='Number of hidden factors of context.')
+    parser.add_argument('--effect_hidden_factor', type=int, default=64,help='Number of hidden factors of effect.')
+    parser.add_argument('--learning_rate', type=float, default=0.001,help='Learning rate.')
+    parser.add_argument('--mlp1_layers', type=int, default=2,help='Number of layer in Interaction-Centric Module.')
+    parser.add_argument('--mlp2_layers', type=int, default=1,help='Number of layer in User/Item-Centric Module.')
+    parser.add_argument('--mlp1_hidden_size', type=int, default=128,help="Dimension of the hidden size of Interaction-Centric Module.")
+    parser.add_argument('--mlp2_hidden_size', type=int, default=128,help="Dimension of the hidden size of User/Item-Centric Module.")
+    parser.add_argument('--keep_prob', type=float, default=0.7,help='Keep probability.')
 
     return parser.parse_args()
 
@@ -106,6 +93,7 @@ if __name__ == '__main__':
         model = AIN(sess, dims, num_context, global_mean, epoch, hidden_factor, context_hidden_factor,
                     effect_hidden_factor, keep_prob, learning_rate, batch_size, mlp1_layers,
                     mlp2_layers, mlp1_hidden_size, mlp2_hidden_size, args.dataset)
+        
         valid_rmse_record, valid_mae_record, test_rmse_record, test_mae_record = model.train(training_set, validation_set, testing_set)
 
         best_valid_rmse = min(valid_rmse_record)

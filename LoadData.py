@@ -6,7 +6,7 @@ class Dataset(object):
 
         #load the dataset and get the dimensions
         self.dataset, self.dims, self.num_context = self.read_data(path + "/ratings.dat")
-
+        
         # compute the global mean
         self.global_mean = self.get_global_mean()
 
@@ -23,15 +23,16 @@ class Dataset(object):
 
     def read_data(self, file_name):
         X = np.loadtxt(file_name, dtype=float, delimiter=',')
-        ndims = X.shape[1] - 1
-        Y = X.T[ndims]  # rating values
-        X = np.delete(X, ndims, 1).astype(int)  # index values
-        dims = [len(list(set(X.T[i]))) for i in range(ndims)]
+        ndims = X.shape[1] - 1 #Obtiene el indice de la ultima columna
+        Y = X.T[ndims]  #Obtiene los ratins (en la ultima columna)
+        X = np.delete(X, ndims, 1).astype(int)  # Quita los ratings de la ultima columna de X
+        dims = [len(list(set(X.T[i]))) for i in range(ndims)] #Obtiene la dimension de cada columna
         context_set = set()
         for dim in range(ndims):
             if dim > 1:
                 context_set = context_set | set(X.T[dim])
         num_context = len(context_set)
+        
         return [X, Y], dims, num_context
 
     def get_global_mean(self):
